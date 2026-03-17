@@ -1,0 +1,20 @@
+{
+  "name": "@reload-dev/core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./ids": { "types": "./src/ids.ts", "import": "./src/ids.ts" },
+    "./types": { "types": "./src/types.ts", "import": "./src/types.ts" },
+    "./schemas": { "types": "./src/schemas.ts", "import": "./src/schemas.ts" },
+    "./states": { "types": "./src/states.ts", "import": "./src/states.ts" },
+    "./result": { "types": "./src/result.ts", "import": "./src/result.ts" },
+    "./errors": { "types": "./src/errors.ts", "import": "./src/errors.ts" }
+  },
+  "dependencies": {
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}

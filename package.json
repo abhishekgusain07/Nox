@@ -1,0 +1,29 @@
+{
+  "name": "reload-dev",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "lint": "turbo lint",
+    "test": "vitest run",
+    "db:generate": "pnpm --filter @reload-dev/server db:generate",
+    "db:push": "pnpm --filter @reload-dev/server db:push",
+    "db:migrate": "pnpm --filter @reload-dev/server db:migrate",
+    "infra": "docker compose up -d",
+    "infra:stop": "docker compose down",
+    "infra:reset": "docker compose down -v && docker compose up -d",
+    "server": "cd packages/server && npx tsx src/index.ts",
+    "worker": "cd tasks && npx tsx run-worker.ts",
+    "dashboard": "cd packages/dashboard && npx next dev --port 3001",
+    "setup": "docker compose up -d && sleep 3 && pnpm db:push",
+    "start": "bash scripts/start-all.sh",
+    "stop": "bash scripts/stop-all.sh"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0"
+  },
+  "packageManager": "pnpm@9.15.0"
+}

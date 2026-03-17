@@ -1,0 +1,17 @@
+{
+  "name": "@reload-dev/tasks",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "worker": "tsx run-worker.ts"
+  },
+  "dependencies": {
+    "@reload-dev/sdk": "workspace:*",
+    "@reload-dev/worker": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.3"
+  }
+}
