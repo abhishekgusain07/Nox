@@ -12,6 +12,8 @@ const client = new ReloadClient({ baseUrl: SERVER_URL });
 
 // Task registry -- maps task IDs to their run functions
 const taskRegistry = new Map<string, (payload: any) => Promise<any>>();
+// Track queue per task
+const taskQueues = new Map<string, string>();
 
 // Track active run count for graceful shutdown
 let activeRunCount = 0;
@@ -24,7 +26,8 @@ export function registerTask<TPayload, TOutput>(
   taskDef: TaskHandle<TPayload, TOutput>,
 ): void {
   taskRegistry.set(taskDef.id, taskDef.run as (payload: any) => Promise<any>);
-  console.log(`[worker] Registered task: ${taskDef.id}`);
+  taskQueues.set(taskDef.id, taskDef.queue ?? QUEUE_ID);
+  console.log(`[worker] Registered task: ${taskDef.id} (queue: ${taskDef.queue ?? QUEUE_ID})`);
 }
 
 /**
@@ -32,17 +35,26 @@ export function registerTask<TPayload, TOutput>(
  * Also registers the worker itself.
  */
 async function registerTasksWithServer(): Promise<void> {
-  // Ensure default queue exists
-  await client.createQueue(QUEUE_ID).catch(() => {
-    // Queue may already exist, that's fine
-  });
+  // Collect all unique queues
+  const queues = new Set<string>([QUEUE_ID]);
+  for (const queueId of taskQueues.values()) {
+    queues.add(queueId);
+  }
 
-  // Register each task
-  for (const taskId of taskRegistry.keys()) {
-    await client.registerTask(taskId, QUEUE_ID).catch(() => {
+  // Ensure all queues exist
+  for (const queueId of queues) {
+    await client.createQueue(queueId).catch(() => {
+      // Queue may already exist, that's fine
+    });
+  }
+
+  // Register each task with its correct queue
+  for (const [taskId, taskFn] of taskRegistry) {
+    const queueId = taskQueues.get(taskId) ?? QUEUE_ID;
+    await client.registerTask(taskId, queueId).catch(() => {
       // Task may already exist, that's fine
     });
-    console.log(`[worker] Registered task with server: ${taskId}`);
+    console.log(`[worker] Registered task with server: ${taskId} → queue: ${queueId}`);
   }
 
   // Register worker with server
@@ -110,38 +122,45 @@ async function executeRun(run: any): Promise<void> {
  * Main dequeue loop -- polls server for work
  */
 async function dequeueLoop(): Promise<void> {
-  console.log(`[worker] Starting dequeue loop (queue: ${QUEUE_ID}, poll: ${POLL_INTERVAL}ms)`);
+  // Collect all unique queues this worker handles
+  const allQueues = [...new Set([QUEUE_ID, ...taskQueues.values()])];
+  console.log(`[worker] Starting dequeue loop (queues: ${allQueues.join(", ")}, poll: ${POLL_INTERVAL}ms)`);
 
   while (!shouldStop) {
-    try {
-      const res = await fetch(`${SERVER_URL}/api/dequeue`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ queueId: QUEUE_ID, limit: 1 }),
-      });
+    let foundWork = false;
 
-      if (!res.ok) {
-        console.error(`[worker] Dequeue failed: ${res.status}`);
-        await sleep(POLL_INTERVAL);
-        continue;
-      }
+    for (const queueId of allQueues) {
+      if (shouldStop) break;
+      try {
+        const res = await fetch(`${SERVER_URL}/api/dequeue`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ queueId, limit: 1 }),
+        });
 
-      const data = await res.json() as { runs: any[] };
-      const runs = data.runs ?? [];
-
-      if (runs.length > 0) {
-        for (const run of runs) {
-          await executeRun(run);
+        if (!res.ok) {
+          console.error(`[worker] Dequeue failed for ${queueId}: ${res.status}`);
+          continue;
         }
-        // If we found work, poll again immediately
-        continue;
+
+        const data = await res.json() as { runs: any[] };
+        const runs = data.runs ?? [];
+
+        if (runs.length > 0) {
+          foundWork = true;
+          for (const run of runs) {
+            await executeRun(run);
+          }
+        }
+      } catch (err: any) {
+        console.error(`[worker] Dequeue error (${queueId}):`, err.message);
       }
-    } catch (err: any) {
-      console.error(`[worker] Dequeue error:`, err.message);
     }
 
-    // No work found, wait before polling again
-    await sleep(POLL_INTERVAL);
+    if (!foundWork) {
+      // No work found on any queue, wait before polling again
+      await sleep(POLL_INTERVAL);
+    }
   }
 
   console.log("[worker] Dequeue loop stopped.");

@@ -345,6 +345,46 @@ export function createRoutes(
     return c.json({ events });
   });
 
+  // GET /api/events — global event feed across all runs
+  api.get("/events", async (c) => {
+    const limit = parseInt(c.req.query("limit") ?? "100", 10);
+    const offset = parseInt(c.req.query("offset") ?? "0", 10);
+    const taskId = c.req.query("taskId");
+    const eventType = c.req.query("eventType");
+
+    const conditions = [];
+    if (taskId) conditions.push(eq(schema.runs.taskId, taskId));
+    if (eventType) conditions.push(eq(schema.runEvents.eventType, eventType));
+
+    let query = db
+      .select({
+        id: schema.runEvents.id,
+        runId: schema.runEvents.runId,
+        eventType: schema.runEvents.eventType,
+        fromStatus: schema.runEvents.fromStatus,
+        toStatus: schema.runEvents.toStatus,
+        workerId: schema.runEvents.workerId,
+        attempt: schema.runEvents.attempt,
+        reason: schema.runEvents.reason,
+        data: schema.runEvents.data,
+        createdAt: schema.runEvents.createdAt,
+        taskId: schema.runs.taskId,
+        queueId: schema.runs.queueId,
+      })
+      .from(schema.runEvents)
+      .innerJoin(schema.runs, eq(schema.runEvents.runId, schema.runs.id))
+      .orderBy(desc(schema.runEvents.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as typeof query;
+    }
+
+    const events = await query;
+    return c.json({ events, limit, offset });
+  });
+
   // Seed endpoints for development
 
   // POST /api/queues — create a queue
@@ -368,17 +408,31 @@ export function createRoutes(
     return c.json({ tasks: allTasks });
   });
 
-  // POST /api/tasks — register a task
+  // POST /api/tasks — register a task (upserts on conflict)
   api.post("/tasks", async (c) => {
     const body = await c.req.json();
+    const queueId = body.queueId ?? "default";
+
+    // Auto-create queue if it doesn't exist (prevents FK violation)
+    await db
+      .insert(schema.queues)
+      .values({ id: queueId, concurrencyLimit: body.concurrencyLimit ?? 10 })
+      .onConflictDoNothing();
+
     const [task] = await db
       .insert(schema.tasks)
       .values({
         id: body.id,
-        queueId: body.queueId ?? "default",
+        queueId,
         retryConfig: body.retryConfig ?? null,
       })
-      .onConflictDoNothing()
+      .onConflictDoUpdate({
+        target: schema.tasks.id,
+        set: {
+          queueId,
+          retryConfig: body.retryConfig ?? null,
+        },
+      })
       .returning();
 
     return c.json({ task: task ?? { id: body.id } }, 201);

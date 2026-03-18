@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 
 export default function TriggerPage() {
   const queryClient = useQueryClient();
@@ -21,6 +22,25 @@ export default function TriggerPage() {
   const [idempotencyKey, setIdempotencyKey] = useState("");
   const [concurrencyKey, setConcurrencyKey] = useState("");
   const [result, setResult] = useState<{ runId?: string; error?: string } | null>(null);
+
+  // Pre-select task from URL query params (e.g. /trigger?taskId=deliver-webhook)
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const preselect = searchParams.get("taskId");
+    if (preselect) {
+      setTaskId(preselect);
+      const presets: Record<string, string> = {
+        "site-health-check": '{"url": "https://httpbin.org/get", "expectedStatus": 200, "timeoutMs": 10000}',
+        "deliver-webhook": '{"targetUrl": "https://httpbin.org/post", "event": "user.signup", "data": {"userId": "usr_123", "email": "jane@example.com"}, "secret": "whsec_test123"}',
+        "scrape-metadata": '{"url": "https://github.com"}',
+        "generate-report": '{"datasetSize": 10000, "reportName": "Q1 Sales Analysis", "filters": {"minValue": 20, "maxValue": 80}}',
+        "process-image": '{"imageUrl": "https://picsum.photos/800/600", "operations": ["thumbnail", "grayscale", "hash", "metadata"]}',
+      };
+      if (presets[preselect]) {
+        setPayloadStr(presets[preselect]!);
+      }
+    }
+  }, [searchParams]);
 
   // Trigger mutation
   const triggerMutation = useMutation({
