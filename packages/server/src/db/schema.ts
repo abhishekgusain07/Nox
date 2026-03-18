@@ -141,6 +141,7 @@ export const runs = pgTable("runs", {
   maxAttempts: integer("max_attempts").default(3).notNull(),
 
   parentRunId: uuid("parent_run_id"),
+  deploymentId: uuid("deployment_id").references(() => deployments.id),
 
   workerId: text("worker_id"),
   heartbeatDeadline: timestamp("heartbeat_deadline", { withTimezone: true }),
@@ -171,6 +172,29 @@ export const workers = pgTable("workers", {
   registeredAt: timestamp("registered_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   projectIdIdx: index("idx_workers_project_id").on(table.projectId),
+}));
+
+export const deploymentStatusEnum = pgEnum("deployment_status", [
+  "STAGED",
+  "ACTIVE",
+  "SUPERSEDED",
+  "FAILED",
+]);
+
+export const deployments = pgTable("deployments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  version: text("version").notNull(),
+  bundleHash: text("bundle_hash").notNull(),
+  bundlePath: text("bundle_path").notNull(),
+  manifest: jsonb("manifest").notNull(),
+  status: deploymentStatusEnum("status").notNull().default("STAGED"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  activatedAt: timestamp("activated_at", { withTimezone: true }),
+  createdBy: text("created_by"),
+}, (table) => ({
+  projectIdIdx: index("idx_deployments_project_id").on(table.projectId),
+  projectStatusIdx: index("idx_deployments_project_status").on(table.projectId, table.status),
 }));
 
 // Append-only event log — every state transition is recorded
@@ -244,4 +268,20 @@ export const waitpoints = pgTable("waitpoints", {
   tokenIdx: uniqueIndex("idx_waitpoints_token").on(table.token),
   typeResolvedIdx: index("idx_waitpoints_type_resolved").on(table.type, table.resolved),
   projectIdIdx: index("idx_waitpoints_project_id").on(table.projectId),
+}));
+
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  projectId: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  apiKeyId: uuid("api_key_id"),
+  action: text("action").notNull(),
+  resourceType: text("resource_type").notNull(),
+  resourceId: text("resource_id").notNull(),
+  details: jsonb("details"),
+  ipAddress: text("ip_address"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  projectIdx: index("idx_audit_logs_project").on(table.projectId),
+  projectCreatedIdx: index("idx_audit_logs_project_created").on(table.projectId, table.createdAt),
+  actionIdx: index("idx_audit_logs_action").on(table.action),
 }));

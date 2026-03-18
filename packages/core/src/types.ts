@@ -19,6 +19,7 @@ export interface Run {
   readonly attemptNumber: number;
   readonly maxAttempts: number;
   readonly parentRunId: string | null;
+  readonly deploymentId: string | null;
   readonly workerId?: string | null;
   readonly heartbeatDeadline?: Date | null;
   readonly version: number;

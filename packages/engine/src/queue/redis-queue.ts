@@ -10,39 +10,37 @@ export interface RedisQueue {
   getActiveQueues(): Promise<string[]>;
 }
 
-export function createRedisQueue(redis: Redis): RedisQueue {
+export function createRedisQueue(redis: Redis, projectId: string = ""): RedisQueue {
+  // Namespace all keys by projectId to isolate multi-tenant data
+  const prefix = projectId ? `${projectId}:` : "";
+
   return {
     async enqueue(runId: string, queueId: string, priority: number = 0): Promise<void> {
-      // Score formula: lower score = dequeued first
-      // (MAX_PRIORITY - priority) puts high-priority items first
-      // * 1e13 ensures priority bands don't overlap with timestamps
-      // + Date.now() gives FIFO within the same priority band
       const score = (MAX_PRIORITY - priority) * 1e13 + Date.now();
-      await redis.zadd(`queue:${queueId}`, score, runId);
-      await redis.sadd("active-queues", queueId);
+      await redis.zadd(`${prefix}queue:${queueId}`, score, runId);
+      await redis.sadd(`${prefix}active-queues`, queueId);
     },
 
     async dequeue(queueId: string, limit: number = 1): Promise<string[]> {
       const results: string[] = [];
       for (let i = 0; i < limit; i++) {
-        // ZPOPMIN: atomically remove and return the lowest-scored item
-        const item = await redis.zpopmin(`queue:${queueId}`);
+        const item = await redis.zpopmin(`${prefix}queue:${queueId}`);
         if (!item || item.length === 0) break;
-        results.push(item[0]!); // item is [member, score]
+        results.push(item[0]!);
       }
       return results;
     },
 
     async remove(queueId: string, runId: string): Promise<void> {
-      await redis.zrem(`queue:${queueId}`, runId);
+      await redis.zrem(`${prefix}queue:${queueId}`, runId);
     },
 
     async depth(queueId: string): Promise<number> {
-      return redis.zcard(`queue:${queueId}`);
+      return redis.zcard(`${prefix}queue:${queueId}`);
     },
 
     async getActiveQueues(): Promise<string[]> {
-      return redis.smembers("active-queues");
+      return redis.smembers(`${prefix}active-queues`);
     },
   };
 }

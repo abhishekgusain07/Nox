@@ -27,7 +27,10 @@ export interface ConcurrencyTracker {
   currentKeyCount(queueId: string, concurrencyKey: string): Promise<number>;
 }
 
-export function createConcurrencyTracker(redis: Redis): ConcurrencyTracker {
+export function createConcurrencyTracker(redis: Redis, projectId: string = ""): ConcurrencyTracker {
+  // Namespace all keys by projectId to isolate multi-tenant data
+  const prefix = projectId ? `${projectId}:` : "";
+
   async function acquireSlot(key: string, limit: number, runId: string): Promise<boolean> {
     const result = await redis.eval(
       ACQUIRE_SCRIPT,
@@ -42,7 +45,7 @@ export function createConcurrencyTracker(redis: Redis): ConcurrencyTracker {
 
   return {
     async acquire(queueId: string, runId: string, limit: number): Promise<boolean> {
-      return acquireSlot(`concurrency:queue:${queueId}`, limit, runId);
+      return acquireSlot(`${prefix}concurrency:queue:${queueId}`, limit, runId);
     },
 
     async acquireWithKey(
@@ -52,33 +55,33 @@ export function createConcurrencyTracker(redis: Redis): ConcurrencyTracker {
       keyLimit: number,
     ): Promise<boolean> {
       return acquireSlot(
-        `concurrency:key:${queueId}:${concurrencyKey}`,
+        `${prefix}concurrency:key:${queueId}:${concurrencyKey}`,
         keyLimit,
         runId,
       );
     },
 
     async release(queueId: string, runId: string): Promise<void> {
-      await redis.zrem(`concurrency:queue:${queueId}`, runId);
+      await redis.zrem(`${prefix}concurrency:queue:${queueId}`, runId);
     },
 
     async releaseWithKey(queueId: string, concurrencyKey: string, runId: string): Promise<void> {
-      await redis.zrem(`concurrency:key:${queueId}:${concurrencyKey}`, runId);
+      await redis.zrem(`${prefix}concurrency:key:${queueId}:${concurrencyKey}`, runId);
     },
 
     async releaseAll(queueId: string, concurrencyKey: string | null, runId: string): Promise<void> {
-      await redis.zrem(`concurrency:queue:${queueId}`, runId);
+      await redis.zrem(`${prefix}concurrency:queue:${queueId}`, runId);
       if (concurrencyKey) {
-        await redis.zrem(`concurrency:key:${queueId}:${concurrencyKey}`, runId);
+        await redis.zrem(`${prefix}concurrency:key:${queueId}:${concurrencyKey}`, runId);
       }
     },
 
     async currentCount(queueId: string): Promise<number> {
-      return redis.zcard(`concurrency:queue:${queueId}`);
+      return redis.zcard(`${prefix}concurrency:queue:${queueId}`);
     },
 
     async currentKeyCount(queueId: string, concurrencyKey: string): Promise<number> {
-      return redis.zcard(`concurrency:key:${queueId}:${concurrencyKey}`);
+      return redis.zcard(`${prefix}concurrency:key:${queueId}:${concurrencyKey}`);
     },
   };
 }

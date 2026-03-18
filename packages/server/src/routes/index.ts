@@ -68,6 +68,12 @@ export function createRoutes(
     const queueId = body.options?.queueId ?? task.queueId;
     const isDelayed = body.options?.scheduledFor != null;
 
+    // Look up active deployment for version pinning (optional — null if no deployment)
+    const [activeDeployment] = await db.select({ id: schema.deployments.id })
+      .from(schema.deployments)
+      .where(and(eq(schema.deployments.projectId, projectId), eq(schema.deployments.status, "ACTIVE")))
+      .limit(1);
+
     // Create run
     const insertResult = await db
       .insert(schema.runs)
@@ -84,6 +90,7 @@ export function createRoutes(
         scheduledFor: body.options?.scheduledFor ? new Date(body.options.scheduledFor) : null,
         ttl: body.options?.ttl ?? null,
         parentRunId: body.options?.parentRunId ?? null,
+        deploymentId: activeDeployment?.id ?? null,
       })
       .returning();
 

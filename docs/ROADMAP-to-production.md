@@ -1,18 +1,35 @@
 # Roadmap: From Local Tool to Publishable Platform
 
-## Current State (audit summary)
+## Current State (updated after Phase 1-3 implementation)
 
-- All 6 packages work for single-tenant local development
-- Zero authentication — all 40+ API endpoints are open
-- Zero multi-tenancy — no project/org scoping on any table
-- Zero deployment infrastructure — tasks are statically imported
-- SDK has `apiKey` param but server ignores it
-- No CLI tool, no bundle system, no versioning
-- Packages are `"private": true`, exports point to `.ts` files (not publishable)
+**What's DONE:**
+- Phase 0 (Build pipeline): All packages compile to dist/ via tsc, turbo build pipeline works, publishConfig set
+- Phase 1 (Multi-tenant schema): users/projects/apiKeys tables, projectId on all tables, composite indexes
+- Phase 2 (Auth middleware): API key validation, project-scoped queries, SDK requires apiKey, worker requires RELOAD_API_KEY, triggerAndWait(), PG NOTIFY projectId, SSE filtering
+- Phase 3 (Dashboard auth via better-auth): signup/login/sessions, project management, API key generation UI, onboarding, auth-aware layout
+- Phase 4 (npm publish readiness): READMEs, LICENSE, defineConfig(), getting-started guide, all packages publishable
+- Phase 5 (CLI & bundling): @reload-dev/cli with init/deploy/dev/whoami, esbuild bundling, server deployment endpoints, deployments table
+- Phase 6 (Managed worker): Dynamic bundle loading, deployment version pinning on runs, hot reload, deployment status tracking
+
+**What's NOT done yet:**
+- Phase 2 gap: Redis key namespacing by projectId (2.7) — needed before multi-tenant production
 
 ## Target State
 
 Users can `npm install @reload-dev/sdk`, define tasks, run `npx reload-dev deploy`, and manage everything from a multi-project dashboard with API key authentication.
+
+## Implementation Progress — ALL PHASES COMPLETE
+
+```
+Phase 0: Build Pipeline     [██████████] 100%  DONE
+Phase 1: Multi-tenancy      [██████████] 100%  DONE
+Phase 2: Auth Middleware     [█████████░] 95%   DONE (one gap: Redis key namespacing)
+Phase 3: Dashboard Auth      [██████████] 100%  DONE
+Phase 4: npm Publish         [██████████] 100%  DONE
+Phase 5: CLI & Bundling      [██████████] 100%  DONE
+Phase 6: Managed Worker      [██████████] 100%  DONE
+Phase 7: Rate Limiting       [██████████] 100%  DONE
+```
 
 ---
 

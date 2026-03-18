@@ -21,12 +21,17 @@ import { createAuthRoutes } from "./routes/auth.js";
 import { cors } from "hono/cors";
 import { createAuth } from "./auth.js";
 import { createProjectRoutes } from "./routes/projects.js";
+import { createDeploymentRoutes } from "./routes/deployments.js";
+import { rateLimitByIp, rateLimitByApiKey } from "./middleware/rate-limit.js";
+import { securityHeaders, maxPayloadSize, requestId } from "./middleware/security.js";
+import { createAuditLogger } from "./middleware/audit.js";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://reload:reload@localhost:5432/reload";
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
 const db = createDb(DATABASE_URL);
+const auditLog = createAuditLogger(db);
 const auth = createAuth(db);
 const pgQueue = createPgQueue(db);
 
@@ -67,6 +72,18 @@ app.use("*", cors({
   allowHeaders: ["Content-Type", "Authorization"],
 }));
 
+// Security headers on all responses
+app.use("*", securityHeaders());
+
+// Request ID for tracing
+app.use("*", requestId());
+
+// Max payload size (10MB)
+app.use("/api/*", maxPayloadSize(10 * 1024 * 1024));
+
+// Rate limit unauthenticated endpoints (login, signup)
+app.use("/api/auth/*", rateLimitByIp(redis, 20, 60_000));
+
 // Auth middleware — validates API key on all /api/* routes
 const authMiddleware = createAuthMiddleware(db);
 
@@ -86,9 +103,16 @@ app.all("/api/auth/*", (c) => {
 // API key middleware on all other /api/* routes
 app.use("/api/*", authMiddleware);
 
+// Rate limit authenticated endpoints by API key
+app.use("/api/*", rateLimitByApiKey(redis, 200, 60_000));
+
 // Mount API key management routes (requires API key)
 const authRoutes = createAuthRoutes(db);
 app.route("/api", authRoutes);
+
+// Mount deployment routes (requires API key)
+const deploymentRoutes = createDeploymentRoutes(db);
+app.route("/api", deploymentRoutes);
 
 // Mount API routes
 const routes = createRoutes(db, pgQueue, engine, { redisQueue, concurrency, waitpointResolver });
@@ -104,4 +128,4 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`reload.dev server running at http://localhost:${info.port}`);
 });
 
-export { app, auth };
+export { app, auth, auditLog };

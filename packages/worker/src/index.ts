@@ -229,3 +229,9 @@ export async function startWorker(): Promise<void> {
   await registerTasksWithServer();
   await dequeueLoop();
 }
+
+/**
+ * Start a managed worker that loads tasks dynamically from deployed bundles.
+ * Use this instead of registerTask() + startWorker() for server-hosted workers.
+ */
+export { startManagedWorker } from "./managed.js";

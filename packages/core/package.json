@@ -1,15 +1,45 @@
 {
   "name": "@reload-dev/core",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
   "exports": {
-    "./ids": { "types": "./src/ids.ts", "import": "./src/ids.ts" },
-    "./types": { "types": "./src/types.ts", "import": "./src/types.ts" },
-    "./schemas": { "types": "./src/schemas.ts", "import": "./src/schemas.ts" },
-    "./states": { "types": "./src/states.ts", "import": "./src/states.ts" },
-    "./result": { "types": "./src/result.ts", "import": "./src/result.ts" },
-    "./errors": { "types": "./src/errors.ts", "import": "./src/errors.ts" }
+    "./ids": {
+      "types": "./dist/ids.d.ts",
+      "import": "./dist/ids.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./schemas": {
+      "types": "./dist/schemas.d.ts",
+      "import": "./dist/schemas.js"
+    },
+    "./states": {
+      "types": "./dist/states.d.ts",
+      "import": "./dist/states.js"
+    },
+    "./result": {
+      "types": "./dist/result.d.ts",
+      "import": "./dist/result.js"
+    },
+    "./errors": {
+      "types": "./dist/errors.d.ts",
+      "import": "./dist/errors.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "zod": "^3.24.0"
