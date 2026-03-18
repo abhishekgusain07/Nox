@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import postgres from "postgres";
 import type { Database } from "../db/index.js";
+import { getAuthContext } from "../middleware/auth.js";
 
 export function createStreamRoutes(db: Database, connectionString: string) {
   const api = new Hono();
@@ -9,6 +10,7 @@ export function createStreamRoutes(db: Database, connectionString: string) {
   // SSE stream for a specific run
   api.get("/runs/:id/stream", async (c) => {
     const runId = c.req.param("id");
+    const { projectId } = getAuthContext(c);
 
     return streamSSE(c, async (stream) => {
       // Create a dedicated connection for LISTEN (can't use pooled connections)
@@ -25,8 +27,8 @@ export function createStreamRoutes(db: Database, connectionString: string) {
         // Subscribe to run updates
         await listener.listen("run_updates", (payload: string) => {
           try {
-            const data = JSON.parse(payload) as { runId?: string; timestamp?: string };
-            if (data.runId === runId) {
+            const data = JSON.parse(payload) as { projectId?: string; runId?: string; timestamp?: string };
+            if (data.projectId === projectId && data.runId === runId) {
               stream.writeSSE({
                 data: payload,
                 event: "update",
@@ -55,15 +57,22 @@ export function createStreamRoutes(db: Database, connectionString: string) {
 
   // SSE stream for all runs (dashboard global feed)
   api.get("/stream", async (c) => {
+    const { projectId } = getAuthContext(c);
+
     return streamSSE(c, async (stream) => {
       const listener = postgres(connectionString, { max: 1 });
 
       try {
         await listener.listen("run_updates", (payload: string) => {
-          stream.writeSSE({
-            data: payload,
-            event: "update",
-          }).catch(() => {});
+          try {
+            const data = JSON.parse(payload) as { projectId?: string };
+            if (data.projectId === projectId) {
+              stream.writeSSE({
+                data: payload,
+                event: "update",
+              }).catch(() => {});
+            }
+          } catch {}
         });
 
         await new Promise<void>((resolve) => {
@@ -78,6 +87,7 @@ export function createStreamRoutes(db: Database, connectionString: string) {
   // SSE stream for a specific queue
   api.get("/queues/:id/stream", async (c) => {
     const queueId = c.req.param("id");
+    const { projectId } = getAuthContext(c);
 
     return streamSSE(c, async (stream) => {
       const listener = postgres(connectionString, { max: 1 });
@@ -85,8 +95,8 @@ export function createStreamRoutes(db: Database, connectionString: string) {
       try {
         await listener.listen("run_updates", (payload: string) => {
           try {
-            const data = JSON.parse(payload) as { queueId?: string };
-            if (data.queueId === queueId) {
+            const data = JSON.parse(payload) as { projectId?: string; queueId?: string };
+            if (data.projectId === projectId && data.queueId === queueId) {
               stream.writeSSE({
                 data: payload,
                 event: "update",

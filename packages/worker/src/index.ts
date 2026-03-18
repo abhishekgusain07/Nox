@@ -7,8 +7,15 @@ const QUEUE_ID = process.env.RELOAD_QUEUE_ID ?? "default";
 const POLL_INTERVAL = parseInt(process.env.RELOAD_POLL_INTERVAL ?? "1000", 10);
 const WORKER_ID = process.env.RELOAD_WORKER_ID ?? `worker-${randomUUID().slice(0, 8)}`;
 const HEARTBEAT_INTERVAL = parseInt(process.env.RELOAD_HEARTBEAT_INTERVAL ?? "10000", 10);
+const RELOAD_API_KEY = process.env.RELOAD_API_KEY;
 
-const client = new ReloadClient({ baseUrl: SERVER_URL });
+if (!RELOAD_API_KEY) {
+  console.error("[worker] RELOAD_API_KEY environment variable is required.");
+  console.error("[worker] Get a server API key from your project dashboard.");
+  process.exit(1);
+}
+
+const client = new ReloadClient({ baseUrl: SERVER_URL, apiKey: RELOAD_API_KEY });
 
 // Task registry -- maps task IDs to their run functions
 const taskRegistry = new Map<string, (payload: any) => Promise<any>>();
@@ -61,7 +68,7 @@ async function registerTasksWithServer(): Promise<void> {
   const taskTypes = [...taskRegistry.keys()];
   await fetch(`${SERVER_URL}/api/workers/register`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${RELOAD_API_KEY}` },
     body: JSON.stringify({ workerId: WORKER_ID, taskTypes, queueId: QUEUE_ID }),
   }).catch(() => {});
 
@@ -90,7 +97,7 @@ async function executeRun(run: any): Promise<void> {
     try {
       await fetch(`${SERVER_URL}/api/runs/${run.id}/heartbeat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${RELOAD_API_KEY}` },
         body: JSON.stringify({ workerId: WORKER_ID }),
       });
     } catch {
@@ -134,7 +141,7 @@ async function dequeueLoop(): Promise<void> {
       try {
         const res = await fetch(`${SERVER_URL}/api/dequeue`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${RELOAD_API_KEY}` },
           body: JSON.stringify({ queueId, limit: 1 }),
         });
 
@@ -195,7 +202,10 @@ function setupGracefulShutdown(): void {
 
     // Deregister from server
     try {
-      await fetch(`${SERVER_URL}/api/workers/${WORKER_ID}/deregister`, { method: "POST" });
+      await fetch(`${SERVER_URL}/api/workers/${WORKER_ID}/deregister`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${RELOAD_API_KEY}` },
+      });
     } catch { /* best effort */ }
 
     console.log("[worker] Drained. Exiting cleanly.");

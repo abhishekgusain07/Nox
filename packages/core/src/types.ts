@@ -3,6 +3,7 @@ import type { RunStatus, FailureType } from "./states.js";
 
 export interface Run {
   readonly id: string;
+  readonly projectId: string;
   readonly taskId: string;
   readonly queueId: string;
   readonly status: RunStatus;
@@ -71,6 +72,7 @@ export interface TransitionResult {
 
 export interface TaskDefinition {
   readonly id: string;
+  readonly projectId: string;
   readonly queueId: string;
   readonly retryConfig: RetryConfig | null;
   readonly createdAt: Date;
@@ -78,6 +80,7 @@ export interface TaskDefinition {
 
 export interface Queue {
   readonly id: string;
+  readonly projectId: string;
   readonly concurrencyLimit: number;
   readonly paused: boolean;
   readonly createdAt: Date;
@@ -85,6 +88,7 @@ export interface Queue {
 
 export interface Worker {
   readonly id: string;
+  readonly projectId: string;
   readonly taskTypes: string[];
   readonly queueId: string | null;
   readonly concurrency: number;

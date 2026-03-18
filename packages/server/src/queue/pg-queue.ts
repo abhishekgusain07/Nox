@@ -3,7 +3,7 @@ import type { Database } from "../db/index.js";
 
 export interface PgQueue {
   enqueue(runId: string): Promise<void>;
-  dequeue(queueId: string, limit?: number): Promise<any[]>;
+  dequeue(queueId: string, limit?: number, projectId?: string): Promise<any[]>;
 }
 
 export function createPgQueue(db: Database): PgQueue {
@@ -16,7 +16,11 @@ export function createPgQueue(db: Database): PgQueue {
       `);
     },
 
-    async dequeue(queueId: string, limit: number = 1): Promise<any[]> {
+    async dequeue(queueId: string, limit: number = 1, projectId?: string): Promise<any[]> {
+      const projectFilter = projectId
+        ? sql`AND project_id = ${projectId}`
+        : sql``;
+
       const result = await db.execute(sql`
         UPDATE runs
         SET status = 'EXECUTING',
@@ -28,6 +32,7 @@ export function createPgQueue(db: Database): PgQueue {
           WHERE queue_id = ${queueId}
             AND status = 'QUEUED'
             AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+            ${projectFilter}
           ORDER BY
             priority DESC,
             created_at ASC

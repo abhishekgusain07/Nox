@@ -6,6 +6,7 @@ import type { RedisQueue } from "@reload-dev/engine";
 import type { ConcurrencyTracker } from "@reload-dev/engine";
 import type { WaitpointResolver } from "@reload-dev/engine";
 import { schema } from "../db/index.js";
+import { getAuthContext } from "../middleware/auth.js";
 import type { Database } from "../db/index.js";
 import type { PgQueue } from "../queue/pg-queue.js";
 import type { RunEngine } from "@reload-dev/engine";
@@ -45,8 +46,9 @@ export function createRoutes(
     }
     const body = parseResult.data;
 
-    // Validate task exists
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, body.taskId)).limit(1);
+    // Validate task exists and belongs to this project
+    const { projectId } = getAuthContext(c);
+    const [task] = await db.select().from(schema.tasks).where(and(eq(schema.tasks.id, body.taskId), eq(schema.tasks.projectId, projectId))).limit(1);
     if (!task) {
       return c.json({ error: `Task not found: ${body.taskId}` }, 404);
     }
@@ -70,6 +72,7 @@ export function createRoutes(
     const insertResult = await db
       .insert(schema.runs)
       .values({
+        projectId: getAuthContext(c).projectId,
         taskId: body.taskId,
         queueId,
         status: isDelayed ? "DELAYED" : "PENDING",
@@ -105,7 +108,8 @@ export function createRoutes(
     }
     const { queueId, limit } = parseResult.data;
 
-    const dequeued = await pgQueue.dequeue(queueId, limit);
+    const { projectId } = getAuthContext(c);
+    const dequeued = await pgQueue.dequeue(queueId, limit, projectId);
     return c.json({ runs: dequeued });
   });
 
@@ -154,7 +158,8 @@ export function createRoutes(
     const limit = parseInt(c.req.query("limit") ?? "50", 10);
     const offset = parseInt(c.req.query("offset") ?? "0", 10);
 
-    const conditions = [];
+    const { projectId } = getAuthContext(c);
+    const conditions = [eq(schema.runs.projectId, projectId)];
     if (status) conditions.push(eq(schema.runs.status, status as typeof schema.runs.status.enumValues[number]));
     if (queueId) conditions.push(eq(schema.runs.queueId, queueId));
     if (taskId) conditions.push(eq(schema.runs.taskId, taskId));
@@ -166,9 +171,7 @@ export function createRoutes(
       .limit(limit)
       .offset(offset);
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as typeof query;
-    }
+    query = query.where(and(...conditions)) as typeof query;
 
     const runs = await query;
     return c.json({ runs, limit, offset });
@@ -176,12 +179,14 @@ export function createRoutes(
 
   // GET /api/queues — list all queues with stats
   api.get("/queues", async (c) => {
-    const allQueues = await db.select().from(schema.queues);
+    const { projectId } = getAuthContext(c);
+    const allQueues = await db.select().from(schema.queues).where(eq(schema.queues.projectId, projectId));
 
     // Get run counts per queue per status
     const stats = await db.execute(sql`
       SELECT queue_id, status, COUNT(*) as count
       FROM runs
+      WHERE project_id = ${projectId}
       GROUP BY queue_id, status
     `);
 
@@ -191,10 +196,11 @@ export function createRoutes(
   // GET /api/runs/:id — get run status
   api.get("/runs/:id", async (c) => {
     const runId = c.req.param("id");
+    const { projectId } = getAuthContext(c);
     const [run] = await db
       .select()
       .from(schema.runs)
-      .where(eq(schema.runs.id, runId))
+      .where(and(eq(schema.runs.id, runId), eq(schema.runs.projectId, projectId)))
       .limit(1);
 
     if (!run) {
@@ -336,10 +342,11 @@ export function createRoutes(
   // GET /api/runs/:id/events — event log for a run
   api.get("/runs/:id/events", async (c) => {
     const runId = c.req.param("id");
+    const { projectId } = getAuthContext(c);
     const events = await db
       .select()
       .from(schema.runEvents)
-      .where(eq(schema.runEvents.runId, runId))
+      .where(and(eq(schema.runEvents.runId, runId), eq(schema.runEvents.projectId, projectId)))
       .orderBy(schema.runEvents.createdAt);
 
     return c.json({ events });
@@ -352,7 +359,8 @@ export function createRoutes(
     const taskId = c.req.query("taskId");
     const eventType = c.req.query("eventType");
 
-    const conditions = [];
+    const { projectId } = getAuthContext(c);
+    const conditions = [eq(schema.runs.projectId, projectId)];
     if (taskId) conditions.push(eq(schema.runs.taskId, taskId));
     if (eventType) conditions.push(eq(schema.runEvents.eventType, eventType));
 
@@ -377,9 +385,7 @@ export function createRoutes(
       .limit(limit)
       .offset(offset);
 
-    if (conditions.length > 0) {
-      query = query.where(and(...conditions)) as typeof query;
-    }
+    query = query.where(and(...conditions)) as typeof query;
 
     const events = await query;
     return c.json({ events, limit, offset });
@@ -393,6 +399,7 @@ export function createRoutes(
     const [queue] = await db
       .insert(schema.queues)
       .values({
+        projectId: getAuthContext(c).projectId,
         id: body.id,
         concurrencyLimit: body.concurrencyLimit ?? 10,
       })
@@ -404,7 +411,8 @@ export function createRoutes(
 
   // GET /api/tasks — list all registered tasks
   api.get("/tasks", async (c) => {
-    const allTasks = await db.select().from(schema.tasks);
+    const { projectId } = getAuthContext(c);
+    const allTasks = await db.select().from(schema.tasks).where(eq(schema.tasks.projectId, projectId));
     return c.json({ tasks: allTasks });
   });
 
@@ -416,12 +424,13 @@ export function createRoutes(
     // Auto-create queue if it doesn't exist (prevents FK violation)
     await db
       .insert(schema.queues)
-      .values({ id: queueId, concurrencyLimit: body.concurrencyLimit ?? 10 })
+      .values({ projectId: getAuthContext(c).projectId, id: queueId, concurrencyLimit: body.concurrencyLimit ?? 10 })
       .onConflictDoNothing();
 
     const [task] = await db
       .insert(schema.tasks)
       .values({
+        projectId: getAuthContext(c).projectId,
         id: body.id,
         queueId,
         retryConfig: body.retryConfig ?? null,
@@ -478,6 +487,7 @@ export function createRoutes(
 
     await db.insert(schema.workers)
       .values({
+        projectId: getAuthContext(c).projectId,
         id: workerId,
         taskTypes,
         queueId: queueId ?? "default",
@@ -521,7 +531,8 @@ export function createRoutes(
 
   // GET /api/workers — list registered workers
   api.get("/workers", async (c) => {
-    const allWorkers = await db.select().from(schema.workers);
+    const { projectId } = getAuthContext(c);
+    const allWorkers = await db.select().from(schema.workers).where(eq(schema.workers.projectId, projectId));
     return c.json({ workers: allWorkers });
   });
 
@@ -545,9 +556,10 @@ export function createRoutes(
   // GET /api/runs/:id/steps — view cached steps for a run
   api.get("/runs/:id/steps", async (c) => {
     const runId = c.req.param("id");
+    const { projectId } = getAuthContext(c);
     const steps = await db.select()
       .from(schema.runSteps)
-      .where(eq(schema.runSteps.runId, runId))
+      .where(and(eq(schema.runSteps.runId, runId), eq(schema.runSteps.projectId, projectId)))
       .orderBy(schema.runSteps.stepIndex);
     return c.json({ steps });
   });
@@ -555,9 +567,10 @@ export function createRoutes(
   // GET /api/runs/:id/waitpoints — view waitpoints for a run
   api.get("/runs/:id/waitpoints", async (c) => {
     const runId = c.req.param("id");
+    const { projectId } = getAuthContext(c);
     const wps = await db.select()
       .from(schema.waitpoints)
-      .where(eq(schema.waitpoints.runId, runId))
+      .where(and(eq(schema.waitpoints.runId, runId), eq(schema.waitpoints.projectId, projectId)))
       .orderBy(schema.waitpoints.createdAt);
     return c.json({ waitpoints: wps });
   });
@@ -587,6 +600,7 @@ export function createRoutes(
 
     // 2. Create the waitpoint
     const waitpointValues: WaitpointInsert = {
+      projectId: getAuthContext(c).projectId,
       type: body.waitpointType,
       runId,
       stepIndex: body.stepIndex,
@@ -603,6 +617,7 @@ export function createRoutes(
       if (!task) return c.json({ error: `Child task not found: ${childData.taskId}` }, 404);
 
       const childInsert = await db.insert(schema.runs).values({
+        projectId: getAuthContext(c).projectId,
         taskId: childData.taskId,
         queueId: task.queueId,
         status: "PENDING" as const,
@@ -641,6 +656,7 @@ export function createRoutes(
         if (!task) continue;
 
         const childInsert = await db.insert(schema.runs).values({
+          projectId: getAuthContext(c).projectId,
           taskId: childData.taskId,
           queueId: task.queueId,
           status: "PENDING" as const,

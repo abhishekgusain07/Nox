@@ -16,6 +16,8 @@ import {
 } from "@reload-dev/engine";
 import { createRoutes } from "./routes/index.js";
 import { createStreamRoutes } from "./routes/stream.js";
+import { createAuthMiddleware } from "./middleware/auth.js";
+import { createAuthRoutes } from "./routes/auth.js";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://reload:reload@localhost:5432/reload";
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -55,8 +57,18 @@ ttlChecker.start().catch(console.error);
 const app = new Hono();
 app.use("*", logger());
 
+// Auth middleware — validates API key on all /api/* routes
+const authMiddleware = createAuthMiddleware(db);
+
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));
+
+// Auth middleware on all /api/* routes (except health check which is at /health)
+app.use("/api/*", authMiddleware);
+
+// Mount auth routes (key management)
+const authRoutes = createAuthRoutes(db);
+app.route("/api", authRoutes);
 
 // Mount API routes
 const routes = createRoutes(db, pgQueue, engine, { redisQueue, concurrency, waitpointResolver });

@@ -36,6 +36,7 @@ export function createRunEngine(deps: RunEngineDeps) {
     // Normalize DB row to Run type
     const run: Run = {
       id: currentRun.id,
+      projectId: currentRun.projectId,
       taskId: currentRun.taskId,
       queueId: currentRun.queueId,
       status: currentRun.status as RunStatus,
@@ -104,6 +105,7 @@ export function createRunEngine(deps: RunEngineDeps) {
     // 4. Record event in append-only log
     if (schema.runEvents) {
       await db.insert(schema.runEvents).values({
+        projectId: run.projectId,
         runId,
         eventType: `run.${to.toLowerCase()}`,
         fromStatus: run.status,
@@ -127,6 +129,7 @@ export function createRunEngine(deps: RunEngineDeps) {
     // 4b. Notify listeners (for SSE)
     try {
       await db.execute(sql`NOTIFY run_updates, ${JSON.stringify({
+        projectId: run.projectId,
         runId,
         fromStatus: run.status,
         toStatus: to,
@@ -148,6 +151,7 @@ export function createRunEngine(deps: RunEngineDeps) {
     const updatedRow = updated[0];
     const returnedRun: Run = {
       id: updatedRow.id,
+      projectId: updatedRow.projectId,
       taskId: updatedRow.taskId,
       queueId: updatedRow.queueId,
       status: updatedRow.status as RunStatus,

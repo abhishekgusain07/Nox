@@ -15,6 +15,7 @@ export interface TriggerResult {
 
 export interface RunStatus {
   id: string;
+  projectId: string;
   taskId: string;
   queueId: string;
   status: string;
@@ -31,15 +32,28 @@ export interface RunStatus {
   completedAt: string | null;
 }
 
+export interface RunEvent {
+  id: string;
+  runId: string;
+  eventType: string;
+  fromStatus: string | null;
+  toStatus: string;
+  workerId: string | null;
+  attempt: number | null;
+  reason: string | null;
+  data: unknown;
+  createdAt: string;
+}
+
 export class ReloadClient {
   private baseUrl: string;
   private headers: Record<string, string>;
 
-  constructor(config: { baseUrl: string; apiKey?: string }) {
+  constructor(config: { baseUrl: string; apiKey: string }) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
     this.headers = {
       "Content-Type": "application/json",
-      ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+      "Authorization": `Bearer ${config.apiKey}`,
     };
   }
 
@@ -62,6 +76,29 @@ export class ReloadClient {
     }
 
     return res.json() as Promise<TriggerResult>;
+  }
+
+  async triggerAndWait(
+    taskId: string,
+    payload: unknown = {},
+    options?: TriggerOptions & { timeoutMs?: number; pollIntervalMs?: number },
+  ): Promise<RunStatus> {
+    const { runId } = await this.trigger(taskId, payload, options);
+    const timeoutMs = options?.timeoutMs ?? 30_000;
+    const pollIntervalMs = options?.pollIntervalMs ?? 500;
+    const deadline = Date.now() + timeoutMs;
+
+    const terminalStatuses = ["COMPLETED", "FAILED", "CANCELLED", "EXPIRED"];
+
+    while (Date.now() < deadline) {
+      const run = await this.getRun(runId);
+      if (terminalStatuses.includes(run.status)) {
+        return run;
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    throw new Error(`Run ${runId} did not complete within ${timeoutMs}ms`);
   }
 
   async getRun(runId: string): Promise<RunStatus> {
@@ -128,7 +165,7 @@ export class ReloadClient {
     return res.json() as Promise<{ ok: boolean }>;
   }
 
-  async getRunEvents(runId: string): Promise<{ events: any[] }> {
+  async getRunEvents(runId: string): Promise<{ events: RunEvent[] }> {
     const res = await fetch(`${this.baseUrl}/api/runs/${runId}/events`, {
       headers: this.headers,
     });
@@ -137,7 +174,7 @@ export class ReloadClient {
       throw new Error(`Failed to get events for run ${runId}: ${res.status}`);
     }
 
-    return res.json() as Promise<{ events: any[] }>;
+    return res.json() as Promise<{ events: RunEvent[] }>;
   }
 
   async createQueue(
