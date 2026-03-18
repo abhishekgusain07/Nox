@@ -32,11 +32,15 @@ echo "Running db:push..."
 pnpm db:push
 
 echo "Starting server..."
-(cd packages/server && npx tsx src/index.ts) &
+(cd packages/server && set -a && source .env && set +a && npx tsx src/index.ts) &
 echo $! >> "$PID_FILE"
 
+# Wait for server to be ready before starting worker
+sleep 2
+
 echo "Starting worker..."
-(cd tasks && npx tsx run-worker.ts) &
+# Worker needs RELOAD_API_KEY — source it from packages/worker/.env if it exists
+(cd tasks && [ -f ../packages/worker/.env ] && set -a && source ../packages/worker/.env && set +a; npx tsx run-worker.ts) &
 echo $! >> "$PID_FILE"
 
 echo "Starting dashboard..."

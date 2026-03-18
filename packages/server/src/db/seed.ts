@@ -1,70 +1,96 @@
-import { eq, isNull, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { createDb, schema } from "./index.js";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, scryptSync } from "node:crypto";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://reload:reload@localhost:5432/reload";
+
+function hashPassword(password: string): string {
+  const salt = randomBytes(16).toString("hex");
+  const hash = scryptSync(password, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
 
 async function seed() {
   const db = createDb(DATABASE_URL);
 
-  console.log("[seed] Starting multi-tenancy backfill...");
+  console.log("[seed] Starting seed...");
 
-  // 1. Create default user (idempotent)
-  const [defaultUser] = await db
-    .insert(schema.users)
-    .values({
-      email: "admin@reload.dev",
+  // 1. Create default user (better-auth compatible)
+  const userId = crypto.randomUUID();
+  const [existingUser] = await db.select().from(schema.users)
+    .where(eq(schema.users.email, "admin@reload.dev")).limit(1);
+
+  const finalUserId = existingUser?.id ?? userId;
+
+  if (!existingUser) {
+    await db.insert(schema.users).values({
+      id: userId,
       name: "Default Admin",
-      passwordHash: createHash("sha256").update("changeme").digest("hex"),
-    })
-    .onConflictDoNothing({ target: schema.users.email })
-    .returning();
+      email: "admin@reload.dev",
+      emailVerified: false,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
 
-  const userId = defaultUser?.id ?? (
-    await db.select({ id: schema.users.id }).from(schema.users)
-      .where(eq(schema.users.email, "admin@reload.dev")).limit(1)
-  )[0]!.id;
-
-  console.log(`[seed] Default user: ${userId}`);
-
-  // 2. Create default project (idempotent)
-  const [defaultProject] = await db
-    .insert(schema.projects)
-    .values({
+    // Create account entry (better-auth stores password here)
+    await db.insert(schema.accounts).values({
+      id: crypto.randomUUID(),
       userId,
+      accountId: userId,
+      providerId: "credential",
+      password: hashPassword("changeme123"),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    console.log(`[seed] Created user: ${userId} (admin@reload.dev)`);
+  } else {
+    console.log(`[seed] User already exists: ${finalUserId}`);
+  }
+
+  // 2. Create default project
+  const [existingProject] = await db.select().from(schema.projects)
+    .where(eq(schema.projects.slug, "default")).limit(1);
+
+  let projectId: string;
+
+  if (!existingProject) {
+    const [project] = await db.insert(schema.projects).values({
+      userId: finalUserId,
       name: "Default Project",
       slug: "default",
-    })
-    .onConflictDoNothing()
-    .returning();
+    }).returning();
+    projectId = project!.id;
+    console.log(`[seed] Created project: ${projectId}`);
+  } else {
+    projectId = existingProject.id;
+    console.log(`[seed] Project already exists: ${projectId}`);
+  }
 
-  const projectId = defaultProject?.id ?? (
-    await db.select({ id: schema.projects.id }).from(schema.projects)
-      .where(eq(schema.projects.slug, "default")).limit(1)
-  )[0]!.id;
-
-  console.log(`[seed] Default project: ${projectId}`);
-
-  // 3. Create a default API key for the project
+  // 3. Create default API key
   const keySecret = randomBytes(24).toString("base64url");
   const rawKey = `rl_dev_${keySecret}`;
   const keyHash = createHash("sha256").update(rawKey).digest("hex");
-  const keyPrefix = rawKey.slice(0, 12);
+  const keyPrefix = rawKey.slice(0, 14);
 
-  await db
-    .insert(schema.apiKeys)
-    .values({
+  const [existingKey] = await db.select().from(schema.apiKeys)
+    .where(eq(schema.apiKeys.projectId, projectId)).limit(1);
+
+  if (!existingKey) {
+    await db.insert(schema.apiKeys).values({
       projectId,
-      name: "Default Dev Key",
+      name: "Default Server Key",
       keyHash,
       keyPrefix,
       keyType: "server",
       environment: "dev",
-    })
-    .onConflictDoNothing({ target: schema.apiKeys.keyHash });
+    });
 
-  console.log(`[seed] Default API key: ${rawKey}`);
-  console.log("[seed] ^^^ SAVE THIS KEY — it will not be shown again ^^^");
+    console.log(`[seed] API key: ${rawKey}`);
+    console.log("[seed] ^^^ SAVE THIS KEY — it will not be shown again ^^^");
+  } else {
+    console.log(`[seed] API key already exists for project`);
+  }
 
   // 4. Backfill projectId on existing tables (chunked)
   const tablesToBackfill = [
@@ -78,27 +104,22 @@ async function seed() {
   ];
 
   for (const { table, name } of tablesToBackfill) {
-    let updated = 0;
-    let batch: number;
-    do {
+    try {
       const result = await db.execute(
-        sql`UPDATE ${table} SET project_id = ${projectId} WHERE project_id IS NULL LIMIT 1000`
+        sql`UPDATE ${table} SET project_id = ${projectId} WHERE project_id IS NULL`
       );
-      batch = (result as any).count ?? (result as any).rowCount ?? 0;
-      updated += batch;
-      if (batch > 0) {
-        console.log(`[seed] Backfilled ${updated} rows in ${name}...`);
+      const count = typeof result === "object" && result !== null && "rowCount" in result
+        ? (result as { rowCount: number }).rowCount
+        : 0;
+      if (count > 0) {
+        console.log(`[seed] Backfilled ${count} rows in ${name}`);
       }
-    } while (batch > 0);
-
-    if (updated > 0) {
-      console.log(`[seed] ${name}: ${updated} rows backfilled`);
-    } else {
-      console.log(`[seed] ${name}: no rows to backfill`);
+    } catch {
+      // Table might not have null project_ids
     }
   }
 
-  console.log("[seed] Backfill complete!");
+  console.log("[seed] Done!");
   process.exit(0);
 }
 

@@ -18,12 +18,16 @@ import { createRoutes } from "./routes/index.js";
 import { createStreamRoutes } from "./routes/stream.js";
 import { createAuthMiddleware } from "./middleware/auth.js";
 import { createAuthRoutes } from "./routes/auth.js";
+import { cors } from "hono/cors";
+import { createAuth } from "./auth.js";
+import { createProjectRoutes } from "./routes/projects.js";
 
 const DATABASE_URL = process.env.DATABASE_URL ?? "postgresql://reload:reload@localhost:5432/reload";
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 
 const db = createDb(DATABASE_URL);
+const auth = createAuth(db);
 const pgQueue = createPgQueue(db);
 
 // Redis setup (Phase 3)
@@ -56,6 +60,12 @@ ttlChecker.start().catch(console.error);
 
 const app = new Hono();
 app.use("*", logger());
+app.use("*", cors({
+  origin: process.env.DASHBOARD_URL ?? "http://localhost:3001",
+  credentials: true,
+  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowHeaders: ["Content-Type", "Authorization"],
+}));
 
 // Auth middleware — validates API key on all /api/* routes
 const authMiddleware = createAuthMiddleware(db);
@@ -63,10 +73,20 @@ const authMiddleware = createAuthMiddleware(db);
 // Health check
 app.get("/health", (c) => c.json({ status: "ok" }));
 
-// Auth middleware on all /api/* routes (except health check which is at /health)
+// Project management routes — session auth (no API key needed)
+const projectRoutes = createProjectRoutes(db, auth);
+app.route("/api/me", projectRoutes);
+
+// better-auth handles user signup/login/sessions — NO API key required
+// Must be AFTER project routes so /api/me/* isn't swallowed
+app.all("/api/auth/*", (c) => {
+  return auth.handler(c.req.raw);
+});
+
+// API key middleware on all other /api/* routes
 app.use("/api/*", authMiddleware);
 
-// Mount auth routes (key management)
+// Mount API key management routes (requires API key)
 const authRoutes = createAuthRoutes(db);
 app.route("/api", authRoutes);
 
@@ -84,4 +104,4 @@ serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`reload.dev server running at http://localhost:${info.port}`);
 });
 
-export { app };
+export { app, auth };

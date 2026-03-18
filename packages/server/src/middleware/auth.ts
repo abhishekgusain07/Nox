@@ -16,6 +16,12 @@ function sha256(input: string): string {
 
 export function createAuthMiddleware(db: Database) {
   return async function apiKeyAuth(c: Context, next: Next) {
+    // Skip API key auth for better-auth routes and session-authed project routes
+    const path = new URL(c.req.url).pathname;
+    if (path.startsWith("/api/auth") || path.startsWith("/api/me")) {
+      return next();
+    }
+
     const header = c.req.header("authorization");
     if (!header?.startsWith("Bearer ")) {
       return c.json({ error: "Missing or invalid Authorization header. Expected: Bearer <api-key>" }, 401);
