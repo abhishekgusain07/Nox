@@ -28,6 +28,11 @@ export async function loadConfig(configPath: string): Promise<ReloadConfig> {
 
   // Bundle the config file with esbuild (handles TS + imports)
   const tmpOut = resolve(process.cwd(), ".reload", "_config.mjs");
+
+  // Resolve workspace packages so esbuild can find them from any cwd
+  const cliDir = resolve(import.meta.dirname ?? __dirname, "../..");
+  const sdkDir = resolve(cliDir, "../sdk");
+
   await esbuild.build({
     entryPoints: [absPath],
     bundle: true,
@@ -35,7 +40,10 @@ export async function loadConfig(configPath: string): Promise<ReloadConfig> {
     format: "esm",
     platform: "node",
     target: "node20",
-    external: ["@reload-dev/sdk", "@reload-dev/sdk/*"],
+    alias: {
+      "@reload-dev/sdk/config": resolve(sdkDir, "dist/config.js"),
+      "@reload-dev/sdk": resolve(sdkDir, "dist/index.js"),
+    },
   });
 
   const mod = await import(pathToFileURL(tmpOut).href);

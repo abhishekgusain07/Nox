@@ -42,6 +42,10 @@ export async function deployCommand(options: { config: string; dryRun?: boolean 
   mkdirSync(outDir, { recursive: true });
   const outfile = resolve(outDir, "bundle.js");
 
+  // Bundle everything into a self-contained file.
+  // The SDK (task(), config types) is inlined — it's just identity functions.
+  // This way the bundle can be loaded from anywhere (e.g. /tmp) without needing
+  // a node_modules directory.
   const buildResult = await esbuild.build({
     entryPoints: [entryPoint],
     bundle: true,
@@ -49,12 +53,6 @@ export async function deployCommand(options: { config: string; dryRun?: boolean 
     format: "esm",
     platform: "node",
     target: "node20",
-    external: [
-      "@reload-dev/sdk",
-      "@reload-dev/sdk/*",
-      "@reload-dev/core",
-      "@reload-dev/core/*",
-    ],
     sourcemap: true,
     metafile: true,
     minify: false,
