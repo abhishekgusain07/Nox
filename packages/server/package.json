@@ -1,0 +1,32 @@
+{
+  "name": "@reload-dev/server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:push": "drizzle-kit push",
+    "db:migrate": "drizzle-kit migrate"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.0",
+    "@reload-dev/core": "workspace:*",
+    "@reload-dev/engine": "workspace:*",
+    "better-auth": "^1.5.5",
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.45.1",
+    "hono": "^4.7.0",
+    "ioredis": "^5.4.0",
+    "postgres": "^3.4.5",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.3"
+  }
+}
