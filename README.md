@@ -1,4 +1,4 @@
-# reload.dev
+# NOX
 
 An open-source, self-hostable background task queue platform for TypeScript. Define tasks as code, trigger them via API or dashboard, and let the engine handle retries, concurrency, scheduling, and real-time observability.
 
